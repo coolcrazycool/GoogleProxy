@@ -1,0 +1,41 @@
+services:
+  google-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: google-proxy:latest
+    container_name: google-proxy
+    networks:
+      - openclaw_google_api
+
+    ports:
+      - "${HOST_PORT:-9000}:9000"
+
+    # Persistent storage: internal_token → account_json mapping survives restarts.
+    # The host directory ./data is mounted at /app/data inside the container.
+    volumes:
+      - ./data:/app/data
+
+    environment:
+      DATA_DIR: /app/data
+      TOKENS_FILE: ${TOKENS_FILE:-tokens.json}
+
+    # Load optional overrides from .env (created from .env.example)
+    env_file:
+      - path: .env
+        required: false
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  openclaw_google_api:
+    name: openclaw_google_api
+    external: true

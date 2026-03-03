@@ -1,0 +1,37 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Tests (not needed in the image)
+tests/
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local dev
+.env
+.venv/
+venv/
+env/
+
+# Token storage (mounted as a volume at runtime)
+data/tokens.json
+
+# Docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Docs
+README.md
+*.md
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
