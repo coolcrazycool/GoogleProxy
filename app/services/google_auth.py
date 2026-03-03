@@ -6,6 +6,7 @@ from google.oauth2 import service_account
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/calendar",
 ]
 
 

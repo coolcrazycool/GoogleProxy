@@ -121,3 +121,83 @@ class FormatRequest(BaseModel):
 
 class FormatResponse(BaseModel):
     applied_ranges: int
+
+
+# ---------------------------------------------------------------------------
+# Calendar
+# ---------------------------------------------------------------------------
+
+class EventAttendee(BaseModel):
+    email: str
+    optional: bool = False
+
+
+class RecurrenceRule(BaseModel):
+    frequency: str = Field(..., description="DAILY, WEEKLY, MONTHLY, YEARLY")
+    interval: int = Field(1, ge=1, description="Repeat every N units")
+    count: Optional[int] = Field(None, ge=1, description="Total number of occurrences")
+    until: Optional[str] = Field(None, description="End date ISO-8601, e.g. 20241231T235959Z")
+    by_day: Optional[list[str]] = Field(
+        None, description="Days of week: MO, TU, WE, TH, FR, SA, SU"
+    )
+
+
+class CreateEventRequest(BaseModel):
+    summary: str = Field(..., description="Event title")
+    description: Optional[str] = None
+    location: Optional[str] = None
+    start: str = Field(..., description="Start datetime ISO-8601, e.g. 2024-06-01T10:00:00+03:00")
+    end: str = Field(..., description="End datetime ISO-8601, e.g. 2024-06-01T11:00:00+03:00")
+    timezone: str = Field("UTC", description="IANA timezone, e.g. Europe/Moscow")
+    attendees: Optional[list[EventAttendee]] = None
+    recurrence: Optional[RecurrenceRule] = Field(
+        None, description="Fill to create a recurring event"
+    )
+    calendar_id: str = Field("primary", description="Calendar ID, default 'primary'")
+
+
+class UpdateEventRequest(BaseModel):
+    summary: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    timezone: Optional[str] = None
+    attendees: Optional[list[EventAttendee]] = None
+    recurrence: Optional[RecurrenceRule] = None
+
+
+class CalendarEvent(BaseModel):
+    id: str
+    summary: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+    start: str
+    end: str
+    status: Optional[str] = None
+    html_link: Optional[str] = None
+    attendees: Optional[list[dict]] = None
+    recurrence: Optional[list[str]] = None
+    creator: Optional[dict] = None
+
+
+class FreeSlot(BaseModel):
+    start: str
+    end: str
+    duration_minutes: int
+
+
+class FreeBusyResponse(BaseModel):
+    time_min: str
+    time_max: str
+    free_slots: list[FreeSlot]
+
+
+class NextMeetingResponse(BaseModel):
+    event: Optional[CalendarEvent] = None
+    minutes_until: Optional[int] = None
+    message: str
+
+
+class DeleteEventResponse(BaseModel):
+    message: str

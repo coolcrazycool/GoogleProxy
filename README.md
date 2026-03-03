@@ -43,6 +43,13 @@ Authorization: Bearer <internal_token>
 - [PUT /sheets/{id}/cells/bulk](#put-sheetsidcellsbulk)
 - [PUT /sheets/{id}/rows](#put-sheetsidrows)
 - [PUT /sheets/{id}/format](#put-sheetsidformat)
+- [GET /calendar/events/today](#get-calendarevendstoday)
+- [GET /calendar/events/week](#get-calendarevendsweek)
+- [GET /calendar/events/next](#get-calendareventsnext)
+- [GET /calendar/freebusy](#get-calendarfreebusy)
+- [POST /calendar/events](#post-calendarevents)
+- [PUT /calendar/events/{id}](#put-calendareventid)
+- [DELETE /calendar/events/{id}](#delete-calendareventid)
 
 ---
 
@@ -687,6 +694,389 @@ requests.put(f"{BASE_URL}/sheets/{sid}/format", headers=headers, json={
 r = requests.get(f"{BASE_URL}/sheets/{sid}/download?format=xlsx", headers=headers)
 with open("report.xlsx", "wb") as f:
     f.write(r.content)
+```
+
+---
+
+---
+
+## Calendar
+
+> Для работы с Calendar API service account должен быть приглашён в нужный календарь как редактор, либо использоваться **domain-wide delegation** в Google Workspace.
+> Все эндпоинты требуют заголовок `Authorization: Bearer <internal_token>`.
+
+---
+
+### GET /calendar/events/today
+
+Получить все события на **сегодня** (по UTC).
+
+**Query-параметры:**
+
+| Параметр | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `calendar_id` | `string` | `primary` | ID календаря |
+
+**Пример:**
+
+```bash
+curl "http://localhost:9000/calendar/events/today" \
+  -H "Authorization: Bearer <internal_token>"
+```
+
+**Ответ `200`:**
+
+```json
+[
+  {
+    "id": "abc123xyz",
+    "summary": "Ежедневный стендап",
+    "description": "Синхронизация команды",
+    "location": "Zoom",
+    "start": "2024-06-15T10:00:00+03:00",
+    "end": "2024-06-15T10:30:00+03:00",
+    "status": "confirmed",
+    "html_link": "https://calendar.google.com/event?id=abc123xyz",
+    "attendees": [{"email": "alice@example.com", "responseStatus": "accepted"}],
+    "recurrence": null,
+    "creator": {"email": "me@example.com"}
+  }
+]
+```
+
+---
+
+### GET /calendar/events/week
+
+Получить события на **ближайшие 7 дней** (от начала сегодняшнего дня UTC).
+
+**Query-параметры:**
+
+| Параметр | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `calendar_id` | `string` | `primary` | ID календаря |
+
+**Пример:**
+
+```bash
+curl "http://localhost:9000/calendar/events/week?calendar_id=primary" \
+  -H "Authorization: Bearer <internal_token>"
+```
+
+**Ответ `200`:** массив объектов `CalendarEvent` (та же структура, что у `/events/today`).
+
+---
+
+### GET /calendar/events/next
+
+**"Сколько времени до следующей встречи?"** — возвращает ближайшее предстоящее событие и количество минут до его начала. Горизонт поиска — 24 часа.
+
+**Query-параметры:**
+
+| Параметр | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `calendar_id` | `string` | `primary` | ID календаря |
+
+**Пример:**
+
+```bash
+curl "http://localhost:9000/calendar/events/next" \
+  -H "Authorization: Bearer <internal_token>"
+```
+
+**Ответ `200` — встреча найдена:**
+
+```json
+{
+  "event": {
+    "id": "abc123xyz",
+    "summary": "Встреча с клиентом",
+    "start": "2024-06-15T14:00:00+03:00",
+    "end": "2024-06-15T15:00:00+03:00",
+    "status": "confirmed"
+  },
+  "minutes_until": 47,
+  "message": "Следующая встреча через 47 мин."
+}
+```
+
+**Ответ `200` — встреч нет:**
+
+```json
+{
+  "event": null,
+  "minutes_until": null,
+  "message": "Нет предстоящих встреч в ближайшие 24 часа"
+}
+```
+
+---
+
+### GET /calendar/freebusy
+
+Найти **свободные временные слоты** в заданном интервале. Использует Google Calendar Freebusy API.
+
+**Query-параметры:**
+
+| Параметр | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `time_min` | `string` | — | Начало интервала, ISO-8601 с таймзоной |
+| `time_max` | `string` | — | Конец интервала, ISO-8601 с таймзоной |
+| `calendar_id` | `string` | `primary` | ID календаря |
+| `min_duration` | `int` | `30` | Минимальная длина свободного слота, в минутах |
+
+**Пример:**
+
+```bash
+curl "http://localhost:9000/calendar/freebusy?\
+time_min=2024-06-15T09:00:00%2B03:00&\
+time_max=2024-06-15T18:00:00%2B03:00&\
+min_duration=30" \
+  -H "Authorization: Bearer <internal_token>"
+```
+
+**Ответ `200`:**
+
+```json
+{
+  "time_min": "2024-06-15T09:00:00+03:00",
+  "time_max": "2024-06-15T18:00:00+03:00",
+  "free_slots": [
+    {
+      "start": "2024-06-15T09:00:00+03:00",
+      "end": "2024-06-15T10:00:00+03:00",
+      "duration_minutes": 60
+    },
+    {
+      "start": "2024-06-15T11:30:00+03:00",
+      "end": "2024-06-15T14:00:00+03:00",
+      "duration_minutes": 150
+    }
+  ]
+}
+```
+
+---
+
+### POST /calendar/events
+
+Создать событие в календаре. Если указать поле `recurrence` — создаётся **повторяющееся событие**.
+
+**Тело запроса:**
+
+| Поле | Тип | Обяз. | Описание |
+|---|---|---|---|
+| `summary` | `string` | ✓ | Название события |
+| `start` | `string` | ✓ | Начало, ISO-8601 с таймзоной |
+| `end` | `string` | ✓ | Конец, ISO-8601 с таймзоной |
+| `timezone` | `string` | | IANA-таймзона, напр. `Europe/Moscow` (по умолч. `UTC`) |
+| `description` | `string` | | Описание |
+| `location` | `string` | | Место проведения |
+| `attendees` | `array` | | Список участников: `[{"email": "...", "optional": false}]` |
+| `recurrence` | `object` | | Правило повторения (см. ниже) |
+| `calendar_id` | `string` | | ID календаря (по умолч. `primary`) |
+
+**Структура `recurrence`:**
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `frequency` | `string` | `DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY` |
+| `interval` | `int` | Повторять каждые N единиц (по умолч. `1`) |
+| `count` | `int?` | Количество повторений |
+| `until` | `string?` | Дата окончания `YYYYMMDDTHHMMSSZ` |
+| `by_day` | `array?` | Дни недели: `["MO","WE","FR"]` |
+
+**Пример — одиночное событие:**
+
+```bash
+curl -X POST http://localhost:9000/calendar/events \
+  -H "Authorization: Bearer <internal_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "summary": "Встреча с клиентом",
+    "start": "2024-06-20T14:00:00+03:00",
+    "end": "2024-06-20T15:00:00+03:00",
+    "timezone": "Europe/Moscow",
+    "location": "Офис, переговорная 3",
+    "attendees": [{"email": "client@example.com"}]
+  }'
+```
+
+**Пример — еженедельное повторяющееся событие (пн и ср, 10 раз):**
+
+```bash
+curl -X POST http://localhost:9000/calendar/events \
+  -H "Authorization: Bearer <internal_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "summary": "Еженедельный стендап",
+    "start": "2024-06-17T10:00:00+03:00",
+    "end": "2024-06-17T10:30:00+03:00",
+    "timezone": "Europe/Moscow",
+    "recurrence": {
+      "frequency": "WEEKLY",
+      "interval": 1,
+      "by_day": ["MO", "WE"],
+      "count": 10
+    }
+  }'
+```
+
+**Ответ `201`:** объект `CalendarEvent` созданного события.
+
+---
+
+### PUT /calendar/events/{event_id}
+
+Обновить существующее событие. Передаются только изменяемые поля; остальные сохраняются.
+
+**Path-параметры:** `event_id` — ID события из Google Calendar.
+
+**Query-параметры:**
+
+| Параметр | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `calendar_id` | `string` | `primary` | ID календаря |
+
+**Тело запроса** (все поля опциональны):
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `summary` | `string?` | Новое название |
+| `description` | `string?` | Новое описание |
+| `location` | `string?` | Новое место |
+| `start` | `string?` | Новое начало, ISO-8601 |
+| `end` | `string?` | Новый конец, ISO-8601 |
+| `timezone` | `string?` | IANA-таймзона |
+| `attendees` | `array?` | Новый список участников |
+| `recurrence` | `object?` | Новое правило повторения |
+
+**Пример:**
+
+```bash
+curl -X PUT "http://localhost:9000/calendar/events/abc123xyz?calendar_id=primary" \
+  -H "Authorization: Bearer <internal_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "summary": "Встреча с клиентом (перенесена)",
+    "start": "2024-06-20T16:00:00+03:00",
+    "end": "2024-06-20T17:00:00+03:00"
+  }'
+```
+
+**Ответ `200`:** обновлённый объект `CalendarEvent`.
+
+**Ошибки:**
+
+| Код | Причина |
+|---|---|
+| `404` | Событие не найдено |
+
+---
+
+### DELETE /calendar/events/{event_id}
+
+Удалить событие из календаря.
+
+**Path-параметры:** `event_id` — ID события.
+
+**Query-параметры:**
+
+| Параметр | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `calendar_id` | `string` | `primary` | ID календаря |
+
+**Пример:**
+
+```bash
+curl -X DELETE "http://localhost:9000/calendar/events/abc123xyz?calendar_id=primary" \
+  -H "Authorization: Bearer <internal_token>"
+```
+
+**Ответ `200`:**
+
+```json
+{
+  "message": "Event 'abc123xyz' deleted"
+}
+```
+
+**Ошибки:**
+
+| Код | Причина |
+|---|---|
+| `404` | Событие не найдено |
+| `410` | Событие уже удалено |
+
+---
+
+## Полный пример на Python — Calendar
+
+```python
+import base64, json, requests
+from datetime import datetime, timedelta, timezone
+
+BASE_URL = "http://localhost:9000"
+
+# 1. Зарегистрироваться
+with open("service_account.json") as f:
+    account_json = json.load(f)
+b64 = base64.b64encode(json.dumps(account_json).encode()).decode()
+r = requests.post(f"{BASE_URL}/auth/register", json={"account_json_b64": b64})
+token = r.json()["internal_token"]
+headers = {"Authorization": f"Bearer {token}"}
+
+# 2. События на сегодня
+today = requests.get(f"{BASE_URL}/calendar/events/today", headers=headers).json()
+print(f"Сегодня {len(today)} событий")
+
+# 3. Сколько до следующей встречи
+nxt = requests.get(f"{BASE_URL}/calendar/events/next", headers=headers).json()
+print(nxt["message"])
+
+# 4. Свободные слоты сегодня
+now = datetime.now(timezone.utc)
+slots = requests.get(f"{BASE_URL}/calendar/freebusy", headers=headers, params={
+    "time_min": now.replace(hour=9, minute=0, second=0).isoformat(),
+    "time_max": now.replace(hour=18, minute=0, second=0).isoformat(),
+    "min_duration": 60,
+}).json()
+print(f"Свободных часовых слотов: {len(slots['free_slots'])}")
+
+# 5. Создать одиночное событие
+start = (now + timedelta(days=1)).replace(hour=10, minute=0, second=0).isoformat()
+end   = (now + timedelta(days=1)).replace(hour=11, minute=0, second=0).isoformat()
+event = requests.post(f"{BASE_URL}/calendar/events", headers=headers, json={
+    "summary": "Демо-встреча",
+    "start": start,
+    "end": end,
+    "timezone": "Europe/Moscow",
+    "attendees": [{"email": "client@example.com"}],
+}).json()
+event_id = event["id"]
+
+# 6. Создать повторяющееся событие (ежедневный стендап, пн–пт, 20 раз)
+requests.post(f"{BASE_URL}/calendar/events", headers=headers, json={
+    "summary": "Стендап",
+    "start": start,
+    "end": (now + timedelta(days=1)).replace(hour=10, minute=15, second=0).isoformat(),
+    "recurrence": {
+        "frequency": "WEEKLY",
+        "interval": 1,
+        "by_day": ["MO", "TU", "WE", "TH", "FR"],
+        "count": 20,
+    },
+})
+
+# 7. Обновить событие
+requests.put(f"{BASE_URL}/calendar/events/{event_id}", headers=headers, json={
+    "summary": "Демо-встреча (подтверждена)",
+    "location": "Zoom link: https://zoom.us/j/...",
+})
+
+# 8. Удалить событие
+requests.delete(f"{BASE_URL}/calendar/events/{event_id}", headers=headers)
+print("Событие удалено")
 ```
 
 ---
